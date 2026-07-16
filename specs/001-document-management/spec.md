@@ -5,6 +5,12 @@
 **Status**: Draft  
 **Input**: Stakeholder requirements: `StakeholderDocs/document-upload-and-management-feature.md`
 
+## Clarifications
+
+### Session 2026-07-16
+
+- Q: How should a Team Lead's "team" be defined for document access? → A: Team = users in the same Department as the Team Lead
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Upload a document with metadata (Priority: P1)
@@ -168,7 +174,7 @@ count reflect recent activity.
 - **FR-014**: Users MUST be able to preview PDF and image documents in the browser without downloading.
 - **FR-015**: The uploader MUST be able to edit a document's metadata (title, description, category, tags) and replace its file with an updated version.
 - **FR-016**: The uploader MUST be able to delete their documents, and Project Managers MUST be able to delete any document within their projects; deletion MUST require confirmation and permanently remove the document and its file.
-- **FR-017**: System MUST enforce role-based access: Employees manage their own and assigned-project documents; Team Leads additionally view/manage their team members' documents; Project Managers manage all documents in their projects; Administrators have full access for audit and compliance.
+- **FR-017**: System MUST enforce role-based access: Employees manage their own and assigned-project documents; Team Leads additionally view/manage documents uploaded by users in the same Department as the Team Lead; Project Managers manage all documents in their projects; Administrators have full access for audit and compliance.
 - **FR-018**: Document owners MUST be able to share a document with specific users; recipients MUST receive an in-app notification and see the document in a "Shared with Me" section.
 - **FR-019**: System MUST notify project members via in-app notification when a new document is added to one of their projects.
 - **FR-020**: System MUST allow users to view, attach, and upload documents from a task detail page, associating those documents with the task's project.
