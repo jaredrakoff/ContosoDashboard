@@ -1,0 +1,317 @@
+@page "/documents"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject IDocumentService DocumentService
+@inject IUserService UserService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JS
+
+<PageTitle>My Documents - ContosoDashboard</PageTitle>
+
+<div class="container-fluid">
+    <div class="row mb-4 align-items-center">
+        <div class="col">
+            <h1>My Documents</h1>
+        </div>
+        <div class="col-auto">
+            <a class="btn btn-primary" href="/documents/upload">
+                <span class="bi bi-upload" aria-hidden="true"></span> Upload
+            </a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert alert-info">@statusMessage</div>
+    }
+
+    <div class="row g-2 mb-3">
+        <div class="col-md-4">
+            <div class="input-group">
+                <input class="form-control" placeholder="Search documents..." @bind="searchTerm" @bind:event="oninput" />
+                <button class="btn btn-outline-primary" @onclick="RunSearch">Search</button>
+                @if (isSearching)
+                {
+                    <button class="btn btn-outline-secondary" @onclick="ClearSearch">Clear</button>
+                }
+            </div>
+        </div>
+        <div class="col-md-3">
+            <select class="form-select" @bind="filterCategory" @bind:after="ReloadAsync" disabled="@isSearching">
+                <option value="">All categories</option>
+                @foreach (var cat in DocumentCategories.All)
+                {
+                    <option value="@cat">@cat</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select class="form-select" @bind="sortField" @bind:after="ReloadAsync" disabled="@isSearching">
+                <option value="UploadedDate">Sort: Upload date</option>
+                <option value="Title">Sort: Title</option>
+                <option value="Category">Sort: Category</option>
+                <option value="FileSize">Sort: File size</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <select class="form-select" @bind="sortDescending" @bind:after="ReloadAsync" disabled="@isSearching">
+                <option value="true">Descending</option>
+                <option value="false">Ascending</option>
+            </select>
+        </div>
+    </div>
+
+    @if (documents == null)
+    {
+        <p><em>Loading...</em></p>
+    }
+    else if (!documents.Any())
+    {
+        <div class="alert alert-info">No documents found.</div>
+    }
+    else
+    {
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Category</th>
+                    <th>Uploaded</th>
+                    <th>Size</th>
+                    <th>Project</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var doc in documents)
+                {
+                    <tr>
+                        <td>@doc.Title</td>
+                        <td>@doc.Category</td>
+                        <td>@doc.UploadedDate.ToString("MMM dd, yyyy")</td>
+                        <td>@FormatSize(doc.FileSizeBytes)</td>
+                        <td>@(doc.Project?.Name ?? "-")</td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-secondary" href="/documents/@doc.DocumentId/download">Download</a>
+                            <a class="btn btn-sm btn-outline-secondary" href="/documents/@doc.DocumentId/preview" target="_blank">Preview</a>
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => BeginEdit(doc)">Edit</button>
+                            <button class="btn btn-sm btn-outline-info" @onclick="() => BeginShare(doc)">Share</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(doc)">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    @if (editingDoc != null)
+    {
+        <div class="card mb-3">
+            <div class="card-header">Edit: @editingDoc.Title</div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Title</label>
+                    <input class="form-control" @bind="editTitle" maxlength="255" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Category</label>
+                    <select class="form-select" @bind="editCategory">
+                        @foreach (var cat in DocumentCategories.All)
+                        {
+                            <option value="@cat">@cat</option>
+                        }
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-control" @bind="editDescription" rows="2" maxlength="2000"></textarea>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Tags</label>
+                    <input class="form-control" @bind="editTags" maxlength="500" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Replace file (optional)</label>
+                    <InputFile class="form-control" OnChange="HandleReplaceFile" />
+                </div>
+                <button class="btn btn-primary" @onclick="SaveEditAsync">Save</button>
+                <button class="btn btn-outline-secondary" @onclick="() => editingDoc = null">Cancel</button>
+            </div>
+        </div>
+    }
+
+    @if (sharingDoc != null)
+    {
+        <div class="card mb-3">
+            <div class="card-header">Share: @sharingDoc.Title</div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Share with</label>
+                    <select class="form-select" @bind="shareWithUserId">
+                        <option value="0">-- Select a user --</option>
+                        @if (allUsers != null)
+                        {
+                            @foreach (var user in allUsers.Where(u => u.UserId != currentUserId))
+                            {
+                                <option value="@user.UserId">@user.DisplayName (@user.Email)</option>
+                            }
+                        }
+                    </select>
+                </div>
+                <button class="btn btn-primary" @onclick="ShareAsync">Share</button>
+                <button class="btn btn-outline-secondary" @onclick="() => sharingDoc = null">Cancel</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Document>? documents;
+    private List<User>? allUsers;
+    private int currentUserId;
+
+    private string searchTerm = string.Empty;
+    private bool isSearching;
+    private string filterCategory = string.Empty;
+    private string sortField = "UploadedDate";
+    private string sortDescending = "true";
+    private string? statusMessage;
+
+    // Edit state
+    private Document? editingDoc;
+    private string editTitle = string.Empty;
+    private string editCategory = string.Empty;
+    private string? editDescription;
+    private string? editTags;
+    private IBrowserFile? replacementFile;
+
+    // Share state
+    private Document? sharingDoc;
+    private int shareWithUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userIdClaim = authState.User.FindFirst(ClaimTypes.NameIdentifier);
+        if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+        {
+            currentUserId = userId;
+        }
+        allUsers = await UserService.GetAllUsersAsync();
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (isSearching)
+        {
+            return;
+        }
+
+        var query = new DocumentQuery(
+            string.IsNullOrEmpty(filterCategory) ? null : filterCategory,
+            null,
+            null,
+            null,
+            Enum.Parse<DocumentSortField>(sortField),
+            bool.Parse(sortDescending));
+
+        documents = await DocumentService.GetMyDocumentsAsync(currentUserId, query);
+    }
+
+    private async Task RunSearch()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            await ClearSearch();
+            return;
+        }
+        isSearching = true;
+        documents = await DocumentService.SearchDocumentsAsync(searchTerm, currentUserId);
+    }
+
+    private async Task ClearSearch()
+    {
+        isSearching = false;
+        searchTerm = string.Empty;
+        await ReloadAsync();
+    }
+
+    private void BeginEdit(Document doc)
+    {
+        sharingDoc = null;
+        editingDoc = doc;
+        editTitle = doc.Title;
+        editCategory = doc.Category;
+        editDescription = doc.Description;
+        editTags = doc.Tags;
+        replacementFile = null;
+    }
+
+    private void HandleReplaceFile(InputFileChangeEventArgs e) => replacementFile = e.File;
+
+    private async Task SaveEditAsync()
+    {
+        if (editingDoc == null)
+        {
+            return;
+        }
+
+        var metadata = new DocumentMetadata(editTitle, editDescription, editCategory, editTags);
+        var ok = await DocumentService.UpdateMetadataAsync(editingDoc.DocumentId, metadata, currentUserId);
+
+        if (ok && replacementFile != null)
+        {
+            await using var stream = replacementFile.OpenReadStream(26_214_400);
+            await DocumentService.ReplaceFileAsync(editingDoc.DocumentId, stream, replacementFile.Name, currentUserId);
+        }
+
+        statusMessage = ok ? "Document updated." : "You are not authorized to update this document.";
+        editingDoc = null;
+        await ReloadAsync();
+    }
+
+    private void BeginShare(Document doc)
+    {
+        editingDoc = null;
+        sharingDoc = doc;
+        shareWithUserId = 0;
+    }
+
+    private async Task ShareAsync()
+    {
+        if (sharingDoc == null || shareWithUserId == 0)
+        {
+            return;
+        }
+        var ok = await DocumentService.ShareDocumentAsync(sharingDoc.DocumentId, shareWithUserId, currentUserId);
+        statusMessage = ok ? "Document shared." : "Unable to share (already shared or not permitted).";
+        sharingDoc = null;
+    }
+
+    private async Task DeleteAsync(Document doc)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"Permanently delete '{doc.Title}'? This cannot be undone.");
+        if (!confirmed)
+        {
+            return;
+        }
+        var ok = await DocumentService.DeleteDocumentAsync(doc.DocumentId, currentUserId);
+        statusMessage = ok ? "Document deleted." : "You are not authorized to delete this document.";
+        await ReloadAsync();
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB" };
+        double size = bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+        return $"{size:0.#} {units[unit]}";
+    }
+}

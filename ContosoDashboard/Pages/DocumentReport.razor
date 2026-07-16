@@ -1,0 +1,80 @@
+@page "/documents/report"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Policy = "Administrator")]
+@inject IDocumentService DocumentService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Document Activity Report - ContosoDashboard</PageTitle>
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Document Activity Report</h1>
+            <p class="text-muted">Administrator view of document usage and audit activity.</p>
+        </div>
+    </div>
+
+    @if (report == null)
+    {
+        <div class="alert alert-warning">No report data available or you are not authorized.</div>
+    }
+    else
+    {
+        <div class="row">
+            <div class="col-md-4 mb-4">
+                <div class="card h-100">
+                    <div class="card-header">Most Uploaded Document Types</div>
+                    <ul class="list-group list-group-flush">
+                        @foreach (var item in report.MostUploadedTypes)
+                        {
+                            <li class="list-group-item d-flex justify-content-between">
+                                <span>@item.FileType</span><span class="badge bg-primary">@item.Count</span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+            <div class="col-md-4 mb-4">
+                <div class="card h-100">
+                    <div class="card-header">Most Active Uploaders</div>
+                    <ul class="list-group list-group-flush">
+                        @foreach (var item in report.MostActiveUploaders)
+                        {
+                            <li class="list-group-item d-flex justify-content-between">
+                                <span>@item.Uploader</span><span class="badge bg-primary">@item.Count</span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+            <div class="col-md-4 mb-4">
+                <div class="card h-100">
+                    <div class="card-header">Access Patterns (Activities)</div>
+                    <ul class="list-group list-group-flush">
+                        @foreach (var item in report.AccessPatterns)
+                        {
+                            <li class="list-group-item d-flex justify-content-between">
+                                <span>@item.Action</span><span class="badge bg-primary">@item.Count</span>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private ContosoDashboard.Services.DocumentReport? report;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userIdClaim = authState.User.FindFirst(ClaimTypes.NameIdentifier);
+        if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+        {
+            report = await DocumentService.GetActivityReportAsync(userId);
+        }
+    }
+}

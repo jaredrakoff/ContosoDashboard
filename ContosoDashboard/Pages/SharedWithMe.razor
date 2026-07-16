@@ -1,0 +1,68 @@
+@page "/documents/shared"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject IDocumentService DocumentService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Shared with Me - ContosoDashboard</PageTitle>
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Shared with Me</h1>
+        </div>
+    </div>
+
+    @if (documents == null)
+    {
+        <p><em>Loading...</em></p>
+    }
+    else if (!documents.Any())
+    {
+        <div class="alert alert-info">No documents have been shared with you.</div>
+    }
+    else
+    {
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Category</th>
+                    <th>Uploaded by</th>
+                    <th>Uploaded</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var doc in documents)
+                {
+                    <tr>
+                        <td>@doc.Title</td>
+                        <td>@doc.Category</td>
+                        <td>@doc.UploadedByUser?.DisplayName</td>
+                        <td>@doc.UploadedDate.ToString("MMM dd, yyyy")</td>
+                        <td class="text-end">
+                            <a class="btn btn-sm btn-outline-secondary" href="/documents/@doc.DocumentId/download">Download</a>
+                            <a class="btn btn-sm btn-outline-secondary" href="/documents/@doc.DocumentId/preview" target="_blank">Preview</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private List<Document>? documents;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userIdClaim = authState.User.FindFirst(ClaimTypes.NameIdentifier);
+        if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+        {
+            documents = await DocumentService.GetSharedWithMeAsync(userId);
+        }
+    }
+}

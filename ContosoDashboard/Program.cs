@@ -8,7 +8,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorPages();
-builder.Services.AddServerSideBlazor();
+builder.Services.AddServerSideBlazor()
+    .AddHubOptions(options => options.MaximumReceiveMessageSize = 26 * 1024 * 1024); // allow 25 MB uploads
+builder.Services.AddControllers();
 
 // Add authentication state provider for Blazor
 builder.Services.AddScoped<AuthenticationStateProvider, CustomAuthenticationStateProvider>();
@@ -43,6 +45,25 @@ builder.Services.AddScoped<ITaskService, TaskService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+
+// Document management services
+builder.Services.Configure<ContosoDashboard.Services.DocumentOptions>(
+    builder.Configuration.GetSection("DocumentStorage"));
+builder.Services.AddScoped<ContosoDashboard.Services.FileStorage.IFileStorageService,
+    ContosoDashboard.Services.FileStorage.LocalFileStorageService>();
+builder.Services.AddScoped<IDocumentService, DocumentService>();
+builder.Services.AddSingleton<ContosoDashboard.Services.Scanning.IFileScanner,
+    ContosoDashboard.Services.Scanning.StubFileScanner>();
+// Offline scan queue: one singleton exposed as both producer and reader.
+builder.Services.AddSingleton<ContosoDashboard.Services.Scanning.InMemoryFileScanQueue>();
+builder.Services.AddSingleton<ContosoDashboard.Services.Scanning.IFileScanQueue>(
+    sp => sp.GetRequiredService<ContosoDashboard.Services.Scanning.InMemoryFileScanQueue>());
+builder.Services.AddSingleton<ContosoDashboard.Services.Scanning.IFileScanQueueReader>(
+    sp => sp.GetRequiredService<ContosoDashboard.Services.Scanning.InMemoryFileScanQueue>());
+builder.Services.AddHostedService<ContosoDashboard.Services.Scanning.FileScanBackgroundService>();
+// Production swap (do NOT enable in the offline training build): replace the queue
+// with an AzureQueueScanQueue backed by Azure Queue Storage and let an Azure Function
+// perform the scan; replace LocalFileStorageService with AzureBlobStorageService.
 
 // Add HttpContextAccessor for accessing user claims
 builder.Services.AddHttpContextAccessor();
@@ -105,6 +126,7 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapControllers();
 app.MapBlazorHub();
 app.MapFallbackToPage("/_Host");
 

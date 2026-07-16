@@ -5,6 +5,7 @@
 @using System.Security.Claims
 @attribute [Authorize]
 @inject ITaskService TaskService
+@inject IDocumentService DocumentService
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>My Tasks - ContosoDashboard</PageTitle>
@@ -126,11 +127,61 @@
                                 <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewTaskDetails(task.TaskId)">
                                     <i class="bi bi-eye"></i>
                                 </button>
+                                <button class="btn btn-sm btn-outline-secondary" title="Documents" @onclick="() => OpenTaskDocuments(task)">
+                                    <i class="bi bi-paperclip"></i>
+                                </button>
                             </td>
                         </tr>
                     }
                 </tbody>
             </table>
+        </div>
+    }
+
+    @if (selectedTask != null)
+    {
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Documents for: @selectedTask.Title</h5>
+                <button type="button" class="btn-close" aria-label="Close" @onclick="() => selectedTask = null"></button>
+            </div>
+            <div class="card-body">
+                @if (selectedTask.ProjectId == null)
+                {
+                    <p class="text-muted">This task is not associated with a project, so documents cannot be attached.</p>
+                }
+                else
+                {
+                    @if (taskDocuments == null || !taskDocuments.Any())
+                    {
+                        <p class="text-muted">No documents for this task's project yet.</p>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush mb-3">
+                            @foreach (var doc in taskDocuments)
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                    <span><i class="bi bi-file-earmark-text"></i> @doc.Title</span>
+                                    <span>
+                                        <a class="btn btn-sm btn-outline-secondary" href="/documents/@doc.DocumentId/download">Download</a>
+                                        <a class="btn btn-sm btn-outline-secondary" href="/documents/@doc.DocumentId/preview" target="_blank">Preview</a>
+                                    </span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    <div class="mb-2">
+                        <label class="form-label">Upload a document to this task's project</label>
+                        <InputFile class="form-control" OnChange="HandleTaskFile" />
+                    </div>
+                    @if (!string.IsNullOrEmpty(taskDocMessage))
+                    {
+                        <div class="alert alert-info py-1">@taskDocMessage</div>
+                    }
+                    <button class="btn btn-primary btn-sm" @onclick="UploadToTaskAsync" disabled="@taskUploading">Upload</button>
+                }
+            </div>
         </div>
     }
 </div>
@@ -140,6 +191,13 @@
     private string filterStatus = "";
     private string filterPriority = "";
     private int currentUserId = 0;
+
+    // Task documents panel state
+    private TaskItem? selectedTask;
+    private List<Document>? taskDocuments;
+    private IBrowserFile? taskFile;
+    private bool taskUploading;
+    private string? taskDocMessage;
 
     protected override async Task OnInitializedAsync()
     {
@@ -188,6 +246,52 @@
     private void ViewTaskDetails(int taskId)
     {
         // TODO: Navigate to task details or show modal
+    }
+
+    private async Task OpenTaskDocuments(TaskItem task)
+    {
+        selectedTask = task;
+        taskFile = null;
+        taskDocMessage = null;
+        taskDocuments = null;
+        if (task.ProjectId.HasValue)
+        {
+            taskDocuments = await DocumentService.GetProjectDocumentsAsync(task.ProjectId.Value, currentUserId);
+        }
+    }
+
+    private void HandleTaskFile(InputFileChangeEventArgs e) => taskFile = e.File;
+
+    private async Task UploadToTaskAsync()
+    {
+        if (selectedTask?.ProjectId == null || taskFile == null)
+        {
+            return;
+        }
+        taskUploading = true;
+        try
+        {
+            await using var stream = taskFile.OpenReadStream(26_214_400);
+            var request = new DocumentUploadRequest(
+                stream,
+                taskFile.Name,
+                taskFile.Size,
+                taskFile.ContentType,
+                Path.GetFileNameWithoutExtension(taskFile.Name),
+                null,
+                DocumentCategories.ProjectDocuments,
+                null,
+                selectedTask.ProjectId);
+            var result = await DocumentService.UploadDocumentAsync(request, currentUserId);
+            taskDocMessage = result != null
+                ? "Uploaded. It will appear once the virus scan completes."
+                : "Upload failed (check the file type and size).";
+            taskDocuments = await DocumentService.GetProjectDocumentsAsync(selectedTask.ProjectId.Value, currentUserId);
+        }
+        finally
+        {
+            taskUploading = false;
+        }
     }
 
     private string GetPriorityColor(TaskPriority priority)

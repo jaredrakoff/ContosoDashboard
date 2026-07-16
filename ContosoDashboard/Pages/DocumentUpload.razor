@@ -1,0 +1,213 @@
+@page "/documents/upload"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject IDocumentService DocumentService
+@inject IProjectService ProjectService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Upload Document - ContosoDashboard</PageTitle>
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h1>Upload Document</h1>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert alert-success">@successMessage</div>
+    }
+
+    <div class="row">
+        <div class="col-md-8 col-lg-6">
+            <div class="mb-3">
+                <label class="form-label">File <span class="text-danger">*</span></label>
+                <InputFile class="form-control" OnChange="HandleFileSelected" />
+                @if (selectedFile != null)
+                {
+                    <div class="form-text">@selectedFile.Name (@FormatSize(selectedFile.Size))</div>
+                }
+                <div class="form-text">Allowed: PDF, Word, Excel, PowerPoint, text, JPEG, PNG. Max 25 MB.</div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Title <span class="text-danger">*</span></label>
+                <input class="form-control" @bind="title" maxlength="255" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Category <span class="text-danger">*</span></label>
+                <select class="form-select" @bind="category">
+                    <option value="">-- Select a category --</option>
+                    @foreach (var cat in DocumentCategories.All)
+                    {
+                        <option value="@cat">@cat</option>
+                    }
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Description</label>
+                <textarea class="form-control" @bind="description" rows="2" maxlength="2000"></textarea>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Associated Project (optional)</label>
+                <select class="form-select" @bind="selectedProjectId">
+                    <option value="">-- None --</option>
+                    @if (projects != null)
+                    {
+                        @foreach (var project in projects)
+                        {
+                            <option value="@project.ProjectId">@project.Name</option>
+                        }
+                    }
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Tags (comma-separated)</label>
+                <input class="form-control" @bind="tags" maxlength="500" />
+            </div>
+
+            <button class="btn btn-primary" @onclick="UploadAsync" disabled="@isUploading">
+                @if (isUploading)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                    <span>Uploading...</span>
+                }
+                else
+                {
+                    <span>Upload</span>
+                }
+            </button>
+            <a class="btn btn-outline-secondary" href="/documents">Cancel</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const long MaxBytes = 26_214_400; // 25 MB
+
+    private IBrowserFile? selectedFile;
+    private string title = string.Empty;
+    private string category = string.Empty;
+    private string? description;
+    private string? tags;
+    private string? selectedProjectId;
+    private List<Project>? projects;
+    private int currentUserId;
+    private bool isUploading;
+    private string? errorMessage;
+    private string? successMessage;
+
+    private static readonly string[] AllowedExtensions =
+        { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".jpg", ".jpeg", ".png" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userIdClaim = authState.User.FindFirst(ClaimTypes.NameIdentifier);
+        if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var userId))
+        {
+            currentUserId = userId;
+            projects = await ProjectService.GetUserProjectsAsync(currentUserId);
+        }
+    }
+
+    private void HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+        errorMessage = null;
+        successMessage = null;
+    }
+
+    private async Task UploadAsync()
+    {
+        errorMessage = null;
+        successMessage = null;
+
+        if (selectedFile == null)
+        {
+            errorMessage = "Please select a file to upload.";
+            return;
+        }
+        if (selectedFile.Size > MaxBytes)
+        {
+            errorMessage = "The file exceeds the 25 MB size limit.";
+            return;
+        }
+        var extension = Path.GetExtension(selectedFile.Name);
+        if (!AllowedExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
+        {
+            errorMessage = "This file type is not supported.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            errorMessage = "A title is required.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(category))
+        {
+            errorMessage = "A category is required.";
+            return;
+        }
+
+        isUploading = true;
+        try
+        {
+            int? projectId = int.TryParse(selectedProjectId, out var pid) ? pid : null;
+
+            await using var stream = selectedFile.OpenReadStream(MaxBytes);
+            var request = new DocumentUploadRequest(
+                stream,
+                selectedFile.Name,
+                selectedFile.Size,
+                selectedFile.ContentType,
+                title,
+                description,
+                category,
+                tags,
+                projectId);
+
+            var result = await DocumentService.UploadDocumentAsync(request, currentUserId);
+            if (result == null)
+            {
+                errorMessage = "Upload failed. Please check the file and required fields.";
+                return;
+            }
+
+            successMessage = "Document uploaded. It will be available once the virus scan completes.";
+            Navigation.NavigateTo("/documents");
+        }
+        catch (Exception)
+        {
+            errorMessage = "An unexpected error occurred during upload.";
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB" };
+        double size = bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+        return $"{size:0.#} {units[unit]}";
+    }
+}
